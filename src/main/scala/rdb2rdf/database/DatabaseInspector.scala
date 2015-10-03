@@ -2,13 +2,19 @@ package rdb2rdf.database
 
 import java.sql.{Connection, DriverManager}
 
+import org.slf4j.LoggerFactory
 import rdb2rdf.models.{DatabaseColumn, ColumnType, Database, DatabaseTable}
 
 import scala.collection.mutable
 
 /** Database inspector which retrieve information from given database URL */
 object DatabaseInspector {
-  private def getJdbcConnection(url: String): Connection = DriverManager.getConnection(url)
+  val LOG = LoggerFactory.getLogger(this.getClass)
+
+  private def getJdbcConnection(url: String): Connection = {
+    LOG.info(s"Get JDBC Connection: $url")
+    DriverManager.getConnection(url)
+  }
 
   private def getTables(connection: Connection): Seq[DatabaseTable] = {
     val metadata = connection.getMetaData

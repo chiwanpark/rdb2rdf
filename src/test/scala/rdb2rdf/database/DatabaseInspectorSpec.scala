@@ -5,11 +5,13 @@ import java.nio.file.Files
 import java.sql.{DriverManager, SQLException}
 
 import org.scalatest.{FlatSpec, Matchers}
+import org.slf4j.LoggerFactory
 import rdb2rdf.models.{ColumnType, Database}
 
 class DatabaseInspectorSpec extends FlatSpec with Matchers {
   behavior of "DatabaseInspector"
 
+  val LOG = LoggerFactory.getLogger(this.getClass)
   val tempDir = Files.createTempDirectory("inspector_spec_")
 
   it should "can inspect H2 Database" in {
@@ -24,7 +26,7 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
     try {
       createSampleTable(url)
     } catch {
-      case _: SQLException =>
+      case _: SQLException => LOG.warn("Test for PostgreSQL is not executed. Please check PostgreSQL server.")
       case _ => checkDatabase(url, DatabaseInspector.inspect(url))
     }
   }

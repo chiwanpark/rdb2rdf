@@ -10,5 +10,7 @@ libraryDependencies ++= Seq(
   "org.xerial" % "sqlite-jdbc" % "3.8.11.1",
   "com.h2database" % "h2" % "1.4.189",
 
+  "ch.qos.logback" % "logback-classic" % "1.1.3",
+
   "org.scalatest" %% "scalatest" % "2.2.4" % "test"
 )
