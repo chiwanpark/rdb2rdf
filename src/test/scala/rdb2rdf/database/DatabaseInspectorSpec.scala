@@ -14,6 +14,22 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
   val LOG = LoggerFactory.getLogger(this.getClass)
   val tempDir = Files.createTempDirectory("inspector_spec_")
 
+  try {
+    Runtime.getRuntime.addShutdownHook(new Thread() {
+      override def run(): Unit = {
+        (getFilesInDirectory(tempDir.toFile) :+ tempDir.toFile).foreach { f =>
+          try {
+            f.delete()
+          } catch {
+            case t: Throwable => LOG.warn("Error while deleting file: " + f.getAbsolutePath, t)
+          }
+        }
+      }
+    })
+  } catch {
+    case t: Throwable => LOG.warn("Error while adding shutdown hook.", t)
+  }
+
   it should "can inspect H2 Database" in {
     val url = "jdbc:h2:" + tempDir.toString + File.separator + "test_h2"
     createSampleTable(url)
@@ -37,6 +53,17 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
     createSampleTable(url)
 
     checkDatabase(url, DatabaseInspector.inspect(url))
+  }
+
+  it should "can inspect MySQL database" in {
+    val url = "jdbc:mysql://localhost:3306/travis_ci_test"
+    try {
+      createSampleTable(url, Some("root"))
+      checkDatabase(url, DatabaseInspector.inspect(url, Some("root")))
+    } catch {
+      case e: SQLException if e.toString contains "refused" =>
+        LOG.warn("Test for MySQL is not executed. Please check MySQL server.", e)
+    }
   }
 
   private def checkDatabase(url: String, database: Database): Unit = {
@@ -67,5 +94,9 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
     } finally {
       connection.close()
     }
+  }
+
+  private def getFilesInDirectory(path: File): Seq[File] = {
+    path.listFiles.filter(_.isDirectory).flatMap(getFilesInDirectory) ++ path.listFiles
   }
 }
