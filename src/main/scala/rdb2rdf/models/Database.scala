@@ -28,7 +28,9 @@ object ColumnType extends Enumeration {
   * @param url URL of database
   * @param tables Sequence of tables in the database
   */
-case class Database(url: String, tables: Seq[DatabaseTable]) {
+case class Database(
+  url: String,
+  tables: Seq[DatabaseTable]) {
   override def toString: String = s"Database(url: $url)"
 }
 
@@ -37,15 +39,27 @@ case class Database(url: String, tables: Seq[DatabaseTable]) {
   * @param tableName Name of database table
   * @param columns Sequence of columns in the table
   */
-case class DatabaseTable(tableName: String, columns: Seq[DatabaseColumn]) {
+case class DatabaseTable(
+  tableName: String,
+  columns: Seq[DatabaseColumn]) {
   override def toString: String = s"DatabaseTable(tableName: $tableName)"
+
+  def primaryKey: DatabaseColumn = columns.filter(_.primaryKey).head
 }
 
 /** Representation of Database Column
   *
   * @param name Name of column
   * @param columnType Type of column
+  * @param foreignKey Pair of connected table name and connected key
+  * @param primaryKey Whether this column is primary key or not
   */
-case class DatabaseColumn(name: String, columnType: ColumnType) {
-  override def toString: String = s"DatabaseColumn(name: $name, columnType: $columnType)"
+case class DatabaseColumn(
+  name: String,
+  columnType: ColumnType,
+  foreignKey: Option[(String, String)] = None,
+  primaryKey: Boolean = false) {
+
+  override def toString: String = s"DatabaseColumn(" +
+    s"name: $name, columnType: $columnType, foreignKey: $foreignKey, primaryKey: $primaryKey))"
 }

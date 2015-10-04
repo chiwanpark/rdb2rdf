@@ -1,9 +1,9 @@
 package rdb2rdf.database
 
-import java.sql.{Connection, DriverManager}
+import java.sql.{Connection, DatabaseMetaData, DriverManager}
 
 import org.slf4j.LoggerFactory
-import rdb2rdf.models.{DatabaseColumn, ColumnType, Database, DatabaseTable}
+import rdb2rdf.models.{ColumnType, Database, DatabaseColumn, DatabaseTable}
 
 import scala.collection.mutable
 
@@ -11,7 +11,11 @@ import scala.collection.mutable
 object DatabaseInspector {
   val LOG = LoggerFactory.getLogger(this.getClass)
 
-  private def getJdbcConnection(url: String, username: Option[String], password: Option[String]): Connection = {
+  private def getJdbcConnection(
+    url: String,
+    username: Option[String],
+    password: Option[String]): Connection = {
+
     LOG.info(s"Get JDBC Connection: $url")
     DriverManager.getConnection(url, username.orNull, password.orNull)
   }
@@ -27,21 +31,75 @@ object DatabaseInspector {
         val schema = tblResult.getString("TABLE_SCHEM")
         val catalog = tblResult.getString("TABLE_CAT")
         val tblName = tblResult.getString("TABLE_NAME")
-        val columns = mutable.ArrayBuffer[DatabaseColumn]()
-        val colResult = metadata.getColumns(catalog, schema, tblName, null)
+        val columns = getColumns(metadata, catalog, schema, tblName)
 
-        while (colResult.next()) {
-          val colName = colResult.getString("COLUMN_NAME")
-          val dataType = colResult.getInt("DATA_TYPE")
-
-          columns += DatabaseColumn(colName.toLowerCase, ColumnType.fromSqlType(dataType))
-        }
-
-        tables += DatabaseTable(tblName.toLowerCase, columns.toSeq)
+        tables += DatabaseTable(tblName, columns)
       }
     }
 
     tables.toSeq
+  }
+
+  private def getPrimaryKeys(
+    metadata: DatabaseMetaData,
+    catalogName: String,
+    schemaName: String,
+    tableName: String): Map[String, Boolean] = {
+
+    val primaryKeys = mutable.Map[String, Boolean]()
+    val pkQryResult = metadata.getPrimaryKeys(catalogName, schemaName, tableName)
+    while (pkQryResult.next()) {
+      val colName = pkQryResult.getString("COLUMN_NAME")
+      primaryKeys(colName) = true
+    }
+
+    primaryKeys.toMap
+  }
+
+  private def getForeignKeys(
+    metadata: DatabaseMetaData,
+    catalogName: String,
+    schemaName: String,
+    tableName: String): Map[String, (String, String)] = {
+
+    val foreignKeys = mutable.Map[String, (String, String)]()
+    val fkQryResult = metadata.getImportedKeys(catalogName, schemaName, tableName)
+
+    while (fkQryResult.next()) {
+      val fkName = fkQryResult.getString("FKCOLUMN_NAME")
+      val pkTblName = fkQryResult.getString("PKTABLE_NAME")
+      val pkColName = fkQryResult.getString("PKCOLUMN_NAME")
+
+      foreignKeys(fkName) = (pkTblName, pkColName)
+    }
+
+    foreignKeys.toMap
+  }
+
+  private def getColumns(
+    metadata: DatabaseMetaData,
+    catalogName: String,
+    schemaName: String,
+    tableName: String): Seq[DatabaseColumn] = {
+
+    val primaryKey = getPrimaryKeys(metadata, catalogName, schemaName, tableName)
+    val foreignKey = getForeignKeys(metadata, catalogName, schemaName, tableName)
+
+    val columns = mutable.ArrayBuffer[DatabaseColumn]()
+    val colQryResult = metadata.getColumns(catalogName, schemaName, tableName, null)
+
+    while (colQryResult.next()) {
+      val colName = colQryResult.getString("COLUMN_NAME")
+      val dataType = colQryResult.getInt("DATA_TYPE")
+
+      val column = DatabaseColumn(colName, ColumnType.fromSqlType(dataType),
+        foreignKey = foreignKey.get(colName),
+        primaryKey = primaryKey.getOrElse(colName, false))
+
+      columns += column
+    }
+
+    columns.toSeq
   }
 
   /** Retrieve database information from given database URL.
@@ -49,7 +107,11 @@ object DatabaseInspector {
     * @param url JDBC URL for database
     * @return [[rdb2rdf.models.Database]] object containing database information
     */
-  def inspect(url: String, username: Option[String] = None, password: Option[String] = None): Database = {
+  def inspect(
+    url: String,
+    username: Option[String] = None,
+    password: Option[String] = None): Database = {
+
     val connection = getJdbcConnection(url, username, password)
     try {
       val tables = getTables(connection)
