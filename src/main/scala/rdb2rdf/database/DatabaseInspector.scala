@@ -11,9 +11,9 @@ import scala.collection.mutable
 object DatabaseInspector {
   val LOG = LoggerFactory.getLogger(this.getClass)
 
-  private def getJdbcConnection(url: String): Connection = {
+  private def getJdbcConnection(url: String, username: Option[String], password: Option[String]): Connection = {
     LOG.info(s"Get JDBC Connection: $url")
-    DriverManager.getConnection(url)
+    DriverManager.getConnection(url, username.orNull, password.orNull)
   }
 
   private def getTables(connection: Connection): Seq[DatabaseTable] = {
@@ -49,8 +49,8 @@ object DatabaseInspector {
     * @param url JDBC URL for database
     * @return [[rdb2rdf.models.Database]] object containing database information
     */
-  def inspect(url: String): Database = {
-    val connection = getJdbcConnection(url)
+  def inspect(url: String, username: Option[String] = None, password: Option[String] = None): Database = {
+    val connection = getJdbcConnection(url, username, password)
     try {
       val tables = getTables(connection)
       Database(url, tables)

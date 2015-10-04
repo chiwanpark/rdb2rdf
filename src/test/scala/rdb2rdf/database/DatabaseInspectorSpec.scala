@@ -24,10 +24,11 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
   it should "can inspect PostgreSQL database" in {
     val url = "jdbc:postgresql://localhost:5432/travis_ci_test"
     try {
-      createSampleTable(url)
+      createSampleTable(url, Some("postgres"))
+      checkDatabase(url, DatabaseInspector.inspect(url, Some("postgres")))
     } catch {
-      case _: SQLException => LOG.warn("Test for PostgreSQL is not executed. Please check PostgreSQL server.")
-      case _ => checkDatabase(url, DatabaseInspector.inspect(url))
+      case e: SQLException if e.toString contains "refused" =>
+        LOG.warn("Test for PostgreSQL is not executed. Please check PostgreSQL server.", e)
     }
   }
 
@@ -53,8 +54,9 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
     col2.columnType should equal(ColumnType.String)
   }
 
-  private def createSampleTable(url: String): Unit = {
-    val connection = DriverManager.getConnection(url)
+  private def createSampleTable(
+    url: String, username: Option[String] = None, password: Option[String] = None): Unit = {
+    val connection = DriverManager.getConnection(url, username.orNull, password.orNull)
 
     try {
       val statement = connection.createStatement()
