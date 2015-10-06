@@ -1,123 +1,117 @@
 package rdb2rdf.database
 
-import java.sql.{Connection, DatabaseMetaData, DriverManager}
+import java.sql.{Connection, DriverManager}
 
 import org.slf4j.LoggerFactory
-import rdb2rdf.models.{ColumnType, Database, DatabaseColumn, DatabaseTable}
 
 import scala.collection.mutable
 
-/** Database inspector which retrieve information from given database URL */
-object DatabaseInspector {
+/** Database inspector which retrieve information from given database URL
+  *
+  * @param jdbcUrl URL for database connection
+  * @param username Username for database connection if needed
+  * @param password Password for database connection if needed
+  */
+class DatabaseInspector(jdbcUrl: String, username: Option[String] = None, password: Option[String] = None) {
   val LOG = LoggerFactory.getLogger(this.getClass)
 
-  private def getJdbcConnection(
-    url: String,
-    username: Option[String],
-    password: Option[String]): Connection = {
+  /** Get JDBC connection */
+  def getJdbcConnection: Connection =
+    DriverManager.getConnection(jdbcUrl, username.orNull, password.orNull)
 
-    LOG.info(s"Get JDBC Connection: $url")
-    DriverManager.getConnection(url, username.orNull, password.orNull)
-  }
-
-  private def getTables(connection: Connection): Seq[DatabaseTable] = {
+  /** Returns all table names in the connected database.
+    *
+    * @param connection The JDBC connection to fetch table names
+    * @return The list of table names
+    */
+  def getTables(connection: Connection): Seq[String] = {
     val metadata = connection.getMetaData
-    val tables = mutable.ArrayBuffer[DatabaseTable]()
-    val tblResult = metadata.getTables(null, null, null, null)
+    val tables = mutable.ArrayBuffer[String]()
+    val tblResult = metadata.getTables(null, "%", "%", null)
 
     while (tblResult.next()) {
       val tblType = tblResult.getString("TABLE_TYPE")
-      if (tblType == "TABLE") {
-        val schema = tblResult.getString("TABLE_SCHEM")
-        val catalog = tblResult.getString("TABLE_CAT")
+      if (tblType == "TABLE" || tblType == "VIEW") {
         val tblName = tblResult.getString("TABLE_NAME")
-        val columns = getColumns(metadata, catalog, schema, tblName)
 
-        tables += DatabaseTable(tblName, columns)
+        tables += tblName
       }
     }
 
     tables.toSeq
   }
 
-  private def getPrimaryKeys(
-    metadata: DatabaseMetaData,
-    catalogName: String,
-    schemaName: String,
-    tableName: String): Map[String, Boolean] = {
+  /** Returns all primary keys in the connected database.
+    *
+    * Each primary key is represented as (table name, column name).
+    *
+    * @param connection The JDBC connection to fetch all primary keys
+    * @return The list of primary keys
+    */
+  def getPrimaryKeys(connection: Connection): Seq[(String, String)] = {
+    val tables = getTables(connection)
+    val primaryKeys = mutable.ArrayBuffer[(String, String)]()
 
-    val primaryKeys = mutable.Map[String, Boolean]()
-    val pkQryResult = metadata.getPrimaryKeys(catalogName, schemaName, tableName)
-    while (pkQryResult.next()) {
-      val colName = pkQryResult.getString("COLUMN_NAME")
-      primaryKeys(colName) = true
+    tables.foreach { table =>
+      val pkQryResult = connection.getMetaData.getPrimaryKeys(null, null, table)
+      while (pkQryResult.next()) {
+        val tblName = pkQryResult.getString("TABLE_NAME")
+        val colName = pkQryResult.getString("COLUMN_NAME")
+
+        primaryKeys += ((tblName, colName))
+      }
     }
 
-    primaryKeys.toMap
+    primaryKeys.toSeq
   }
 
-  private def getForeignKeys(
-    metadata: DatabaseMetaData,
-    catalogName: String,
-    schemaName: String,
-    tableName: String): Map[String, (String, String)] = {
+  /** Returns all foreign keys in the connected database.
+    *
+    * Each column is represented as (table name, column name).
+    *
+    * @param connection The JDBC connection to fetch all foreign keys
+    * @return The map between foreign keys (key) and primary keys (value)
+    */
+  def getForeignKeys(connection: Connection): Map[(String, String), (String, String)] = {
+    val tables = getTables(connection)
+    val foreignKeys = mutable.Map[(String, String), (String, String)]()
 
-    val foreignKeys = mutable.Map[String, (String, String)]()
-    val fkQryResult = metadata.getImportedKeys(catalogName, schemaName, tableName)
+    tables.foreach { table =>
+      val fkQryResult = connection.getMetaData.getImportedKeys(null, null, table)
+      while (fkQryResult.next()) {
+        val fkTblName = fkQryResult.getString("FKTABLE_NAME")
+        val fkColName = fkQryResult.getString("FKCOLUMN_NAME")
+        val pkTblName = fkQryResult.getString("PKTABLE_NAME")
+        val pkColName = fkQryResult.getString("PKCOLUMN_NAME")
 
-    while (fkQryResult.next()) {
-      val fkName = fkQryResult.getString("FKCOLUMN_NAME")
-      val pkTblName = fkQryResult.getString("PKTABLE_NAME")
-      val pkColName = fkQryResult.getString("PKCOLUMN_NAME")
-
-      foreignKeys(fkName) = (pkTblName, pkColName)
+        foreignKeys((fkTblName, fkColName)) = (pkTblName, pkColName)
+      }
     }
 
     foreignKeys.toMap
   }
 
-  private def getColumns(
-    metadata: DatabaseMetaData,
-    catalogName: String,
-    schemaName: String,
-    tableName: String): Seq[DatabaseColumn] = {
+  /** Returns all columns in the connected database.
+    *
+    * Each column is represented as (table name, column name, type of data).
+    *
+    * @param connection The JDBC connection to fetch all columns.
+    * @return The list of columns
+    */
+  def getColumns(connection: Connection): Seq[(String, String, Int)] = {
+    val columns = mutable.ArrayBuffer[(String, String, Int)]()
 
-    val primaryKey = getPrimaryKeys(metadata, catalogName, schemaName, tableName)
-    val foreignKey = getForeignKeys(metadata, catalogName, schemaName, tableName)
+    getTables(connection).foreach { table =>
+      val colQryResult = connection.getMetaData.getColumns(null, "%", table, "%")
+      while (colQryResult.next()) {
+        val tblName = colQryResult.getString("TABLE_NAME")
+        val colName = colQryResult.getString("COLUMN_NAME")
+        val dataType = colQryResult.getInt("DATA_TYPE")
 
-    val columns = mutable.ArrayBuffer[DatabaseColumn]()
-    val colQryResult = metadata.getColumns(catalogName, schemaName, tableName, null)
-
-    while (colQryResult.next()) {
-      val colName = colQryResult.getString("COLUMN_NAME")
-      val dataType = colQryResult.getInt("DATA_TYPE")
-
-      val column = DatabaseColumn(colName, ColumnType.fromSqlType(dataType),
-        foreignKey = foreignKey.get(colName),
-        primaryKey = primaryKey.getOrElse(colName, false))
-
-      columns += column
+        columns += ((tblName, colName, dataType))
+      }
     }
 
     columns.toSeq
-  }
-
-  /** Retrieve database information from given database URL.
-    *
-    * @param url JDBC URL for database
-    * @return [[rdb2rdf.models.Database]] object containing database information
-    */
-  def inspect(
-    url: String,
-    username: Option[String] = None,
-    password: Option[String] = None): Database = {
-
-    val connection = getJdbcConnection(url, username, password)
-    try {
-      val tables = getTables(connection)
-      Database(url, tables)
-    } finally {
-      connection.close()
-    }
   }
 }

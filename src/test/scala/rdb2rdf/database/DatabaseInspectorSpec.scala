@@ -6,7 +6,6 @@ import java.sql.{DriverManager, SQLException}
 
 import org.scalatest.{FlatSpec, Matchers}
 import org.slf4j.LoggerFactory
-import rdb2rdf.models.{ColumnType, Database, DatabaseColumn}
 
 class DatabaseInspectorSpec extends FlatSpec with Matchers {
   behavior of "DatabaseInspector"
@@ -34,14 +33,33 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
     val url = "jdbc:h2:" + tempDir.toString + File.separator + "test_h2"
     createSampleTable(url)
 
-    checkDatabaseUpper(url, DatabaseInspector.inspect(url))
+    val inspector = new DatabaseInspector(url)
+    val connection = inspector.getJdbcConnection
+    try {
+      checkTables(inspector.getTables(connection), checkUpper = true)
+      checkColumns(inspector.getColumns(connection), checkUpper = true)
+      checkPrimaryKeys(inspector.getPrimaryKeys(connection), checkUpper = true)
+      checkForeignKeys(inspector.getForeignKeys(connection), checkUpper = true)
+    } finally {
+      connection.close()
+    }
   }
 
   it should "can inspect PostgreSQL database" in {
     val url = "jdbc:postgresql://localhost:5432/travis_ci_test"
     try {
       createSampleTable(url, Some("postgres"))
-      checkDatabaseLower(url, DatabaseInspector.inspect(url, Some("postgres")))
+
+      val inspector = new DatabaseInspector(url)
+      val connection = inspector.getJdbcConnection
+      try {
+        checkTables(inspector.getTables(connection))
+        checkColumns(inspector.getColumns(connection))
+        checkPrimaryKeys(inspector.getPrimaryKeys(connection))
+        checkForeignKeys(inspector.getForeignKeys(connection))
+      } finally {
+        connection.close()
+      }
     } catch {
       case e: SQLException if e.toString contains "refused" =>
         LOG.warn("Test for PostgreSQL is not executed. Please check PostgreSQL server.", e)
@@ -52,64 +70,90 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
     val url = "jdbc:sqlite:" + tempDir.toString + File.separator + "test_sqlite.db"
     createSampleTable(url)
 
-    checkDatabaseUpper(url, DatabaseInspector.inspect(url), primaryKey = false)
+    val inspector = new DatabaseInspector(url)
+    val connection = inspector.getJdbcConnection
+    try {
+      checkTables(inspector.getTables(connection), checkUpper = true)
+      checkColumns(inspector.getColumns(connection), checkUpper = true)
+      checkForeignKeys(inspector.getForeignKeys(connection), checkUpper = true)
+    } finally {
+      connection.close()
+    }
   }
 
   it should "can inspect MySQL database" in {
     val url = "jdbc:mysql://localhost:3306/travis_ci_test"
     try {
       createSampleTable(url, Some("root"))
-      checkDatabaseUpper(url, DatabaseInspector.inspect(url, Some("root")))
+
+      val inspector = new DatabaseInspector(url, Some("root"))
+      val connection = inspector.getJdbcConnection
+      try {
+        checkTables(inspector.getTables(connection), checkUpper = true)
+        checkColumns(inspector.getColumns(connection), checkUpper = true)
+        checkPrimaryKeys(inspector.getPrimaryKeys(connection), checkUpper = true)
+        checkForeignKeys(inspector.getForeignKeys(connection), checkUpper = true)
+      } finally {
+        connection.close()
+      }
     } catch {
-      case e: SQLException if e.toString contains "refused" =>
+      case e: SQLException if e.toString contains "link failure" =>
         LOG.warn("Test for MySQL is not executed. Please check MySQL server.", e)
     }
   }
 
-  private def checkDatabaseUpper(url: String, database: Database, primaryKey: Boolean = true): Unit = {
-    database.url should equal(url)
-    database.tables.length should equal(2)
+  private def checkTables(givenTables: Seq[String], checkUpper: Boolean = false): Unit = {
+    val names = Seq("sample1", "sample2")
 
-    val (tbl1, tbl2) = (database.tables.head, database.tables(1))
-    tbl1.tableName should equal("SAMPLE1")
-    tbl1.columns.length should equal(2)
-
-    val (t1Col1, t1Col2) = (tbl1.columns.head, tbl1.columns(1))
-    t1Col1 should equal(DatabaseColumn("ID", ColumnType.Integer, primaryKey = primaryKey))
-    t1Col2 should equal(DatabaseColumn("NAME", ColumnType.String))
-
-    tbl2.tableName should equal("SAMPLE2")
-    tbl2.columns.length should equal(3)
-
-    val (t2Col1, t2Col2, t2Col3) = (tbl2.columns.head, tbl2.columns(1), tbl2.columns(2))
-    t2Col1 should equal(DatabaseColumn("ID", ColumnType.Integer, primaryKey = primaryKey))
-    t2Col2 should equal(DatabaseColumn("NAME", ColumnType.String))
-    t2Col3 should equal(DatabaseColumn("SAMPLE1_ID", ColumnType.Integer, Some("SAMPLE1", "ID")))
+    names.map { name => if (checkUpper) name.toUpperCase else name }
+      .forall(givenTables.contains(_)) should equal(true)
   }
 
-  private def checkDatabaseLower(url: String, database: Database): Unit = {
-    database.url should equal(url)
-    database.tables.length should equal(2)
+  private def checkColumns(givenColumns: Seq[(String, String, Int)], checkUpper: Boolean = false): Unit = {
+    val tables = Seq("sample1", "sample2")
+    val columns = Map("sample1" -> Seq("id", "name"), "sample2" -> Seq("id", "name", "sample1_id"))
 
-    val (tbl1, tbl2) = (database.tables.head, database.tables(1))
-    tbl1.tableName should equal("sample1")
-    tbl1.columns.length should equal(2)
+    val tblColPairs = for {
+      table <- tables
+      column <- columns(table)
+    } yield if (checkUpper) {
+        (table.toUpperCase, column.toUpperCase)
+      } else {
+        (table, column)
+      }
 
-    val (t1Col1, t1Col2) = (tbl1.columns.head, tbl1.columns(1))
-    t1Col1 should equal(DatabaseColumn("id", ColumnType.Integer, primaryKey = true))
-    t1Col2 should equal(DatabaseColumn("name", ColumnType.String))
-
-    tbl2.tableName should equal("sample2")
-    tbl2.columns.length should equal(3)
-
-    val (t2Col1, t2Col2, t2Col3) = (tbl2.columns.head, tbl2.columns(1), tbl2.columns(2))
-    t2Col1 should equal(DatabaseColumn("id", ColumnType.Integer, primaryKey = true))
-    t2Col2 should equal(DatabaseColumn("name", ColumnType.String))
-    t2Col3 should equal(DatabaseColumn("sample1_id", ColumnType.Integer, Some("sample1", "id")))
+    tblColPairs.forall { case (table, column) =>
+      val dataType = if (column.contains("id") || column.contains("ID")) 4 else 12
+      givenColumns.contains((table, column, dataType))
+    } should equal(true)
   }
+
+  private def checkPrimaryKeys(givenPks: Seq[(String, String)], checkUpper: Boolean = false): Unit = {
+    val tables = Seq("sample1", "sample2")
+
+    tables.map { table => if (checkUpper) (table.toUpperCase, "ID") else (table, "id") }
+      .forall(givenPks.contains(_)) should equal(true)
+  }
+
+  private def checkForeignKeys(
+    givenFks: Map[(String, String), (String, String)],
+    checkUpper: Boolean = false): Unit = {
+
+    val foreignKeys = if (checkUpper) {
+      Map(("SAMPLE2", "SAMPLE1_ID") ->("SAMPLE1", "ID"))
+    } else {
+      Map(("sample2", "sample1_id") ->("sample1", "id"))
+    }
+
+    foreignKeys should equal(givenFks)
+  }
+
 
   private def createSampleTable(
-    url: String, username: Option[String] = None, password: Option[String] = None): Unit = {
+    url: String,
+    username: Option[String] = None,
+    password: Option[String] = None): Unit = {
+
     val connection = DriverManager.getConnection(url, username.orNull, password.orNull)
 
     try {
