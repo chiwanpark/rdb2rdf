@@ -10,7 +10,13 @@ libraryDependencies ++= Seq(
   "org.xerial" % "sqlite-jdbc" % "3.8.11.1",
   "com.h2database" % "h2" % "1.4.189",
 
+  "org.scala-lang.modules" %% "scala-swing" % "2.0.0-M2",
+
   "ch.qos.logback" % "logback-classic" % "1.1.3",
 
   "org.scalatest" %% "scalatest" % "2.2.4" % "test"
 )
+
+unmanagedJars in Compile <<= baseDirectory map { base => (base / "lib" ** "*.jar").classpath }
+
+mainClass in assembly := Some("rdb2rdf.ui.RDB2RDFApp")
