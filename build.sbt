@@ -4,6 +4,8 @@ version := "0.1.0-SNAPSHOT"
 
 scalaVersion := "2.11.5"
 
+resolvers += "jitpack" at "https://jitpack.io"
+
 libraryDependencies ++= Seq(
   "org.postgresql" % "postgresql" % "9.4-1203-jdbc42",
   "mysql" % "mysql-connector-java" % "5.1.36",
@@ -14,9 +16,9 @@ libraryDependencies ++= Seq(
 
   "ch.qos.logback" % "logback-classic" % "1.1.3",
 
+  "com.github.jgraph" % "jgraphx" % "v3.4.0.0",
+
   "org.scalatest" %% "scalatest" % "2.2.4" % "test"
 )
-
-unmanagedJars in Compile <<= baseDirectory map { base => (base / "lib" ** "*.jar").classpath }
 
 mainClass in assembly := Some("rdb2rdf.ui.RDB2RDFApp")

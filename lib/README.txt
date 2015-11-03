@@ -1,1 +1,0 @@
-You should download mxGraph in homepage (http://jgraph.github.io/mxgraph/) and add the jar into this directory.
