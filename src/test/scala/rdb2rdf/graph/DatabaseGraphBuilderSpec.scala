@@ -2,7 +2,7 @@ package rdb2rdf.graph
 
 import org.scalatest.{FlatSpec, Matchers}
 import org.slf4j.LoggerFactory
-import rdb2rdf.graph.DatabaseGraph.{DatabaseVertex, Builder}
+import rdb2rdf.graph.DatabaseGraph.{Builder, DatabaseVertex}
 
 class DatabaseGraphBuilderSpec extends FlatSpec with Matchers {
   behavior of "DatabaseGraph.Builder"
@@ -30,7 +30,7 @@ class DatabaseGraphBuilderSpec extends FlatSpec with Matchers {
     val tables = Seq("table1", "table2")
     val columns = Seq(("table1", "id", 4), ("table1", "name", 12), ("table2", "id", 4), ("table2", "table1_id", 4))
     val primaryKeys = Seq(("table1", "id"), ("table2", "id"))
-    val foreignKeys = Map(("table2", "table1_id") -> ("table1", "id"))
+    val foreignKeys = Map(("table2", "table1_id") ->("table1", "id"))
 
     val graph = new Builder()
       .setDatabaseJdbcUrl(jdbcUrl)
