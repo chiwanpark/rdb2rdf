@@ -31,8 +31,14 @@ class DatabaseGraph(
       case v: ColumnVertex => v
     }
 
-  def getForeignKeys(v: DatabaseGraph.TableVertex) =
-    connectedVerticesWithEdgeFilter(v)(_ == DatabaseGraph.Edge.ForeignKey).collect {
+  def getForeignKeys(v: DatabaseGraph.TableVertex) = getColumns(v)
+    .filter(c => connectedVerticesWithEdgeFilter(c)(_ == DatabaseGraph.Edge.ForeignKey).nonEmpty)
+    .collect {
+      case v: ColumnVertex => v
+    }
+
+  def getLinkedColumnWithForeignKey(v: DatabaseGraph.ColumnVertex) =
+    connectedVerticesWithEdgeFilter(v)(_ == DatabaseGraph.Edge.ForeignKey).collectFirst {
       case v: ColumnVertex => v
     }
 
