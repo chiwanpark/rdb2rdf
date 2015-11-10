@@ -1,14 +1,18 @@
 package rdb2rdf.graph
 
+import java.util.UUID
+
 import rdb2rdf.graph.DatabaseGraph.Edge.Edge
 import rdb2rdf.graph.DatabaseGraph.{ColumnVertex, DatabaseVertex, TableVertex, Vertex}
 
-import scala.collection.mutable
-
 class DatabaseGraph(
+  id: UUID,
   vertices: Set[Vertex],
   edges: Set[(Vertex, Edge, Vertex)])
   extends DirectGraph(vertices, edges) {
+
+  def this(vertices: Set[Vertex], edges: Set[(Vertex, Edge, Vertex)]) =
+    this(UUID.randomUUID(), vertices, edges)
 
   def getAllDatabases = vertices.collect {
     case v: DatabaseVertex => v
@@ -48,33 +52,7 @@ class DatabaseGraph(
     }
 
   def ++(otherGraph: DatabaseGraph): DatabaseGraph = {
-    val g1 = if (isGeneralized) this else generalized
-    val g2 = if (otherGraph.isGeneralized) otherGraph else otherGraph.generalized
-
-    new DatabaseGraph(g1.vertices ++ g2.vertices, g1.edges ++ g2.edges)
-  }
-
-  def isGeneralized = (getAllTables ++ getAllColumns).forall {
-    case v: DatabaseVertex => true
-    case v: Vertex => v.identifier.contains("$")
-  }
-
-  private[graph] def generalized: DatabaseGraph = {
-    if (isGeneralized) {
-      throw new IllegalStateException("The graph is already generalized!")
-    }
-
-    val verticesMap = mutable.Map[String, Vertex]()
-    val newEdges = mutable.ArrayBuffer[(Vertex, Edge, Vertex)]()
-    val dbVertex = getAllDatabases.toSeq.head
-
-    verticesMap += ((dbVertex.identifier, dbVertex))
-    verticesMap ++= getAllTables.map(v => (v.identifier, v.copy(prefix = Some(dbVertex.identifier))))
-    verticesMap ++= getAllColumns.map(v => (v.identifier, v.copy(table = verticesMap(v.table).identifier)))
-
-    newEdges ++= edges.map(e => (verticesMap(e._1.identifier), e._2, verticesMap(e._3.identifier)))
-
-    new DatabaseGraph(verticesMap.values.toSet, newEdges.toSet)
+    new DatabaseGraph(vertices ++ otherGraph.vertices, edges ++ otherGraph.edges)
   }
 }
 
@@ -82,6 +60,8 @@ object DatabaseGraph {
 
   abstract class Vertex {
     def identifier: String
+
+    def simpleIdentifier: String
   }
 
   case class DatabaseVertex(
@@ -93,27 +73,30 @@ object DatabaseGraph {
       case None => s"$jdbcUrl:database"
     }
 
+    override def simpleIdentifier = identifier
+
     override def toString = s"DatabaseVertex($identifier)"
   }
 
   case class TableVertex(
     name: String,
-    prefix: Option[String] = None) extends Vertex {
+    database: DatabaseVertex) extends Vertex {
 
-    override def identifier = prefix match {
-      case Some(value) => s"$value$$$name"
-      case None => name
-    }
+    override def identifier = s"${database.identifier}/$name"
+
+    override def simpleIdentifier = name
 
     override def toString = s"TableVertex($identifier)"
   }
 
   case class ColumnVertex(
     name: String,
-    table: String,
+    table: TableVertex,
     dataType: Int) extends Vertex {
 
-    override def identifier = s"$table/$name"
+    override def identifier = s"${table.identifier}#$name"
+
+    override def simpleIdentifier = name
 
     override def toString = s"ColumnVertex($identifier)"
   }
@@ -229,12 +212,12 @@ object DatabaseGraph {
 
       val dbVertex = DatabaseVertex(databaseJdbcUrl.get, databaseName)
       val tableVertices = tables match {
-        case Some(vs) => vs.map(table => TableVertex(table))
+        case Some(vs) => vs.map(table => TableVertex(table, dbVertex))
         case None => Seq[TableVertex]()
       }
       val columnVertices = columns match {
         case Some(vs) => vs.map { case (table, column, dataType) =>
-          ColumnVertex(column, table, dataType)
+          ColumnVertex(column, TableVertex(table, dbVertex), dataType)
         }
         case None => Seq[ColumnVertex]()
       }
@@ -244,22 +227,22 @@ object DatabaseGraph {
       val dbTableEdges = tableVertices.map((dbVertex, Edge.Contains, _)) ++
         tableVertices.map((_, Edge.Belongs, dbVertex))
 
-      val tableColumnEdges = columnVertices.map { v => (verticesMap(v.table), Edge.Contains, v) } ++
-        columnVertices.map { v => (v, Edge.Belongs, verticesMap(v.table)) }
+      val tableColumnEdges = columnVertices.map { v => (verticesMap(v.table.identifier), Edge.Contains, v) } ++
+        columnVertices.map { v => (v, Edge.Belongs, verticesMap(v.table.identifier)) }
 
       val primaryKeyEdges = primaryKeys match {
         case Some(pk) => columnVertices
-          .filter { v => pk.contains((v.table, v.name)) }
-          .map { v => (verticesMap(v.table), Edge.PrimaryKey, v) }
+          .filter { v => pk.contains((v.table.name, v.name)) }
+          .map { v => (verticesMap(v.table.identifier), Edge.PrimaryKey, v) }
         case None => Seq[(Vertex, Edge.Edge, Vertex)]()
       }
 
       val foreignKeyEdges = foreignKeys match {
         case Some(fk) => columnVertices
-          .filter { v => fk.contains((v.table, v.name)) }
+          .filter { v => fk.contains((v.table.name, v.name)) }
           .map { v =>
-            val link = fk((v.table, v.name))
-            (v, Edge.ForeignKey, verticesMap(s"${link._1}/${link._2}"))
+            val link = fk((v.table.name, v.name))
+            (v, Edge.ForeignKey, verticesMap(s"${dbVertex.identifier}/${link._1}#${link._2}"))
           }
         case None => Seq[(Vertex, Edge.Edge, Vertex)]()
       }

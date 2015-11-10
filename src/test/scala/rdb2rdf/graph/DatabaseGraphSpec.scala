@@ -13,28 +13,6 @@ class DatabaseGraphSpec extends FlatSpec with Matchers {
 
     merged.vertices.size should equal(graph1.vertices.size + graph2.vertices.size)
     merged.edges.size should equal(graph1.edges.size + graph2.edges.size)
-    merged.isGeneralized should equal(true)
-  }
-
-  it can "prevent generalizing the already generalized graph" in {
-    val graph = createSampleGraph()
-
-    a[IllegalStateException] should be thrownBy {
-      graph.generalized.generalized
-    }
-  }
-
-  it can "generalize the given graph" in {
-    val graph = createSampleGraph()
-    val generalized = graph.generalized
-
-    generalized.vertices.size should equal(graph.vertices.size)
-    generalized.edges.size should equal(graph.edges.size)
-    generalized.getAllDatabases should equal(graph.getAllDatabases)
-    (generalized.getAllTables ++ generalized.getAllColumns).forall {
-      case v: DatabaseVertex => true
-      case v: Vertex => v.identifier.contains("$")
-    } should equal(true)
   }
 
   private def createSampleGraph(dbName: String = "testdb1"): DatabaseGraph = {
