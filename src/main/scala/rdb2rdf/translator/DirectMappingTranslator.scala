@@ -4,7 +4,7 @@ import rdb2rdf.graph.MappingGraph
 import rdb2rdf.graph.MappingGraph._
 
 class DirectMappingTranslator extends DatabaseGraphToMappingGraphTranslator {
-  override def translate: Option[MappingGraph] = databaseGraph match {
+  override def translate(): Option[MappingGraph] = databaseGraph match {
     case Some(dbGraph) =>
       val entityVertices = dbGraph.getAllTables.map(v => EntityVertex(v, dbGraph.getPrimaryKey(v).get))
       val columnEdges = entityVertices.flatMap { entity =>

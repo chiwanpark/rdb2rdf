@@ -11,5 +11,5 @@ trait DatabaseGraphToMappingGraphTranslator {
     this
   }
 
-  def translate: Option[MappingGraph]
+  def translate(): Option[MappingGraph]
 }
