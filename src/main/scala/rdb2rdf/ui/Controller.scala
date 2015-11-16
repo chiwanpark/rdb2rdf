@@ -2,7 +2,7 @@ package rdb2rdf.ui
 
 import org.slf4j.LoggerFactory
 import rdb2rdf.database.DatabaseInspector
-import rdb2rdf.graph.DatabaseGraph
+import rdb2rdf.database.representation.Database
 import rdb2rdf.ui.dialog.AddDatabaseDialog
 import rdb2rdf.ui.event.{CloseDialog, ExitProgram, OpenAddDatabaseDialog, RequestAddDatabase}
 
@@ -17,27 +17,12 @@ class Controller(appFrame: AppFrame) extends Publisher {
 
   reactions += {
     case RequestAddDatabase(sender, jdbcUrl, dbNameOpt, usernameOpt, passwordOpt) =>
-      val inspectDBOperation = Future[DatabaseGraph] {
-        val inspector = new DatabaseInspector(jdbcUrl, usernameOpt, passwordOpt)
-        val connection = inspector.getJdbcConnection
-        val builder = new DatabaseGraph.Builder()
-          .setDatabaseJdbcUrl(jdbcUrl)
-          .setColumns(inspector.getColumns(connection))
-          .setPrimaryKeys(inspector.getPrimaryKeys(connection))
-          .setForeignKeys(inspector.getForeignKeys(connection))
-          .setTables(inspector.getTables(connection))
-
-        dbNameOpt match {
-          case Some(name) => builder.setDatabaseName(name)
-          case None =>
-        }
-
-        builder.build()
+      val inspectDBOperation = Future[Database] {
+        new DatabaseInspector(jdbcUrl, usernameOpt, passwordOpt).inspect()
       }
 
       inspectDBOperation onSuccess { case result =>
         Swing.onEDT {
-          appFrame.graphPanel.addDatabaseGraph(result)
         }
       }
 
@@ -63,5 +48,7 @@ class Controller(appFrame: AppFrame) extends Publisher {
 
     case ExitProgram(sender) =>
       sys.exit(0)
+
+    case _ =>
   }
 }

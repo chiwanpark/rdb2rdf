@@ -2,9 +2,11 @@ name := "rdb2rdf"
 
 version := "0.1.0-SNAPSHOT"
 
-scalaVersion := "2.11.7"
+scalaVersion := "2.10.5"
 
-resolvers += "jitpack" at "https://jitpack.io"
+resolvers ++= Seq(
+  "apache-snapshots" at "http://repository.apache.org/snapshots/"
+)
 
 libraryDependencies ++= Seq(
   "org.postgresql" % "postgresql" % "9.4-1203-jdbc42",
@@ -13,6 +15,8 @@ libraryDependencies ++= Seq(
   "com.h2database" % "h2" % "1.4.189",
 
   "org.scala-lang.modules" %% "scala-swing" % "2.0.0-M2",
+  "org.graphstream" % "gs-core" % "1.3",
+  "org.graphstream" % "gs-ui" % "1.3",
 
   "ch.qos.logback" % "logback-classic" % "1.1.3",
 
