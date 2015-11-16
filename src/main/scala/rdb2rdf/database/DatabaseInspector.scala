@@ -3,6 +3,7 @@ package rdb2rdf.database
 import java.sql.{Connection, DriverManager}
 
 import org.slf4j.LoggerFactory
+import rdb2rdf.database.representation.{Constraint, Table, Column, Database}
 
 import scala.collection.mutable
 
@@ -16,7 +17,7 @@ class DatabaseInspector(jdbcUrl: String, username: Option[String] = None, passwo
   val LOG = LoggerFactory.getLogger(this.getClass)
 
   /** Get JDBC connection */
-  def getJdbcConnection: Connection =
+  private[database] def createJdbcConnection(): Connection =
     DriverManager.getConnection(jdbcUrl, username.orNull, password.orNull)
 
   /** Returns all table names in the connected database.
@@ -113,5 +114,41 @@ class DatabaseInspector(jdbcUrl: String, username: Option[String] = None, passwo
     }
 
     columns.toSeq
+  }
+
+  def inspect(): Database = {
+    val connection = createJdbcConnection()
+
+    try {
+      val primaryKeys = getPrimaryKeys(connection)
+      val foreignkeys = getForeignKeys(connection)
+
+      val columns = getColumns(connection)
+      val tables = getTables(connection).map { x =>
+        val memberColumns = columns.filter(_._1 == x).map(c => Column(c._2, c._3)).toSet
+        val memberPks = primaryKeys.filter(_._1 == x).map { c =>
+          val pkColumn = memberColumns.find(_.name == c._2) match {
+            case Some(column) => column
+            case None => throw new IllegalStateException("Wrong primary key description in the given database.")
+          }
+
+          Constraint(pkColumn, Constraint.Description.PrimaryKey, None)
+        }.toSet
+        val memberFks = foreignkeys.filter { case (src, dst) => src._1 == x }.map { case (src, dst) =>
+            val srcColumn = memberColumns.find(_.name == src._2) match {
+              case Some(column) => column
+              case None => throw new IllegalStateException("Wrong foreign key description in the given database.")
+            }
+
+            Constraint(srcColumn, Constraint.Description.ForeignKey, Some(s"${dst._1}/${dst._2}"))
+        }.toSet
+
+        Table(x, memberColumns, memberPks ++ memberFks)
+      }.toSet
+
+      Database(jdbcUrl, username, password, tables)
+    } finally {
+      connection.close()
+    }
   }
 }

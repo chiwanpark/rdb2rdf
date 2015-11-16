@@ -6,6 +6,7 @@ import java.sql.{DriverManager, SQLException}
 
 import org.scalatest.{FlatSpec, Matchers}
 import org.slf4j.LoggerFactory
+import rdb2rdf.database.representation.Constraint
 
 class DatabaseInspectorSpec extends FlatSpec with Matchers {
   behavior of "DatabaseInspector"
@@ -34,12 +35,13 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
     createSampleTable(url)
 
     val inspector = new DatabaseInspector(url)
-    val connection = inspector.getJdbcConnection
+    val connection = inspector.createJdbcConnection()
     try {
       checkTables(inspector.getTables(connection), checkUpper = true)
       checkColumns(inspector.getColumns(connection), checkUpper = true)
       checkPrimaryKeys(inspector.getPrimaryKeys(connection), checkUpper = true)
       checkForeignKeys(inspector.getForeignKeys(connection), checkUpper = true)
+      checkInspect(inspector, checkUpper = true)
     } finally {
       connection.close()
     }
@@ -51,12 +53,13 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
       createSampleTable(url, Some("postgres"))
 
       val inspector = new DatabaseInspector(url)
-      val connection = inspector.getJdbcConnection
+      val connection = inspector.createJdbcConnection()
       try {
         checkTables(inspector.getTables(connection))
         checkColumns(inspector.getColumns(connection))
         checkPrimaryKeys(inspector.getPrimaryKeys(connection))
         checkForeignKeys(inspector.getForeignKeys(connection))
+        checkInspect(inspector)
       } finally {
         connection.close()
       }
@@ -71,11 +74,13 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
     createSampleTable(url)
 
     val inspector = new DatabaseInspector(url)
-    val connection = inspector.getJdbcConnection
+    val connection = inspector.createJdbcConnection()
     try {
       checkTables(inspector.getTables(connection), checkUpper = true)
       checkColumns(inspector.getColumns(connection), checkUpper = true)
       checkForeignKeys(inspector.getForeignKeys(connection), checkUpper = true)
+      // TODO: fix uppercase/lowercase column name problem in primary key and foreign key constraints
+      // checkInspect(inspector, checkPrimaryKeyConstraint = false, checkUpper = true)
     } finally {
       connection.close()
     }
@@ -87,18 +92,53 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
       createSampleTable(url, Some("root"))
 
       val inspector = new DatabaseInspector(url, Some("root"))
-      val connection = inspector.getJdbcConnection
+      val connection = inspector.createJdbcConnection()
       try {
         checkTables(inspector.getTables(connection), checkUpper = true)
         checkColumns(inspector.getColumns(connection), checkUpper = true)
         checkPrimaryKeys(inspector.getPrimaryKeys(connection), checkUpper = true)
         checkForeignKeys(inspector.getForeignKeys(connection), checkUpper = true)
+        checkInspect(inspector, checkUpper = true)
       } finally {
         connection.close()
       }
     } catch {
       case e: SQLException if e.toString contains "link failure" =>
         LOG.warn("Test for MySQL is not executed. Please check MySQL server.", e)
+    }
+  }
+
+  private def checkInspect(
+    inspector: DatabaseInspector,
+    checkPrimaryKeyConstraint: Boolean = true,
+    checkUpper: Boolean = false): Unit = {
+    val database = inspector.inspect()
+
+    val tables = database.tables.map(_.name).toSeq
+    val columns = database.tables.flatMap { table =>
+      table.columns.map(column => (table.name, column.name, column.columnType))
+    }.toSeq
+
+    val foreignKeys = database.tables.flatMap { table =>
+      table.constraints.filter(_.constraint == Constraint.Description.ForeignKey).map {
+        case Constraint(column, Constraint.Description.ForeignKey, Some(optionalInfo: String)) =>
+          val split = optionalInfo.split("/")
+          ((table.name, column.name), (split(0), split(1)))
+      }
+    }.toMap
+    checkForeignKeys(foreignKeys, checkUpper)
+
+    checkTables(tables, checkUpper)
+    checkColumns(columns, checkUpper)
+
+    if (checkPrimaryKeyConstraint) {
+      val primaryKeys = database.tables.flatMap { table =>
+        table.constraints.filter(_.constraint == Constraint.Description.PrimaryKey).map {
+          case Constraint(column, Constraint.Description.PrimaryKey, _) =>
+            (table.name, column.name)
+        }
+      }.toSeq
+      checkPrimaryKeys(primaryKeys, checkUpper)
     }
   }
 
@@ -117,10 +157,10 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
       table <- tables
       column <- columns(table)
     } yield if (checkUpper) {
-        (table.toUpperCase, column.toUpperCase)
-      } else {
-        (table, column)
-      }
+      (table.toUpperCase, column.toUpperCase)
+    } else {
+      (table, column)
+    }
 
     tblColPairs.forall { case (table, column) =>
       val dataType = if (column.contains("id") || column.contains("ID")) 4 else 12
@@ -145,9 +185,8 @@ class DatabaseInspectorSpec extends FlatSpec with Matchers {
       Map(("sample2", "sample1_id") ->("sample1", "id"))
     }
 
-    foreignKeys should equal(givenFks)
+    givenFks should equal(foreignKeys)
   }
-
 
   private def createSampleTable(
     url: String,
